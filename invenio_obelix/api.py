@@ -21,60 +21,41 @@
 
 import json
 import time
+import logger
 
-#from invenio.errorlib import register_exception
-#from invenio.config import CFG_WEBSEARCH_OBELIX_REDIS, CFG_WEBSEARCH_OBELIX_USER_KEY
+def get_logger():
+    return logger.getLogger('invenio_obelix')
 
 
 class Obelix(object):
-    # Global Obelix config
-    config = None
-    searchLogger = None
-    def __init__(self, config, userKey='uid'):
-        """
-        config and userKey should be mapped to CFG_WEBSEARCH_OBELIX_CONFIG,
-                                               CFG_WEBSEARCH_OBELIX_USER_KEY
-        TODO: change to redis or internal
-        param config: {dataStoreName: 'redis', host: '1270.0.0.1', port: 6379}
-        """
 
-        # Global Obelix config TODO: Maybe check if settings changed
-        if Obelix.config is None:
-            Obelix.config = _SearchEngineConfig(queue, userKey=userKey)
-        if Obelix.searchLogger is None:
-            Obelix.searchLogger = _SearchEngineLogger(Obelix.config)
+    def __init__(self, storage, queue, logger=None):
+        self.storage = storage
+        self.queue = queue
+        self.logger = logger or get_logger()
 
-    def rank_records_obelix(user_info, hitset, rg=10, jrec=0):
+    def rank_records(hitset, user_identifier=None, rg=10, jrec=0):
         """
-        Public method
         Ranks a given search result based on recommendations
         Expects the hitset to be sorted by latest last [1,2,3,4,5] (recids)
         """
         hitset = list(hitset)
         hitset.reverse()
-
         jrec = max(jrec - 1, 0)
 
-        try:
-
-            uid = ""
-
-            if self.config.userKey:
-                if self.config.userKey in user_info:
-                    uid = user_info[self.config.userKey]
-
-            if self.config.recommendations_impact == 0 or uid == 0 or uid == "" or uid == "0":
-                records, scores = hitset, [0] * len(hitset)
-
-            else:
-                records, scores = _SearchEngine(uid, hitset, config=self.config).rank()
-
+        # TODO: Maybe cache ranked result, if the next page is loaded
+        result =  _SearchEngine(uid, hitset, config=self.config).rank()
+        if result is not None:
+            records, scores = result
             return records[jrec:jrec + rg], scores[jrec:jrec + rg]
 
-        except Exception:
-            register_exception(alert_admin=True)
-            return hitset[jrec:jrec + rg], [0] * len(hitset[jrec:jrec + rg])
+        self.logger("FIXME consider propagating error")
+        # return hitset[jrec:jrec + rg], None #[0] * len(hitset[jrec:jrec + rg])
 
+        return None
+
+    def log(action, *args, **kwargs):
+        return getattr(self, 'log_' + action)(*args, **kwargs)
 
     def log_search_result_obelix(user_info, original_result_ordered, record_ids,
                                 results_final_colls_scores, cols_in_result_ordered,
@@ -134,64 +115,28 @@ class Obelix(object):
             register_exception(alert_admin=True)
 
 
-class _SearchEngineConfig(object):
-    """ Obelix Settings object """
+class Recommender(object):
+    """ Obelix Recommender """
 
-    def __init__(self, userKey, redis=None):
-        """
-        Sets the default settings values, may specify redis service to use (mocking)
-        :param redis:
-        :return:
-        """
-        config = {dataStoreName: 'redis', host: '1270.0.0.1', port: 6379}
+    def __init__(self, config):
 
-        dataStore = config.get('dataStoreName', 'redis')
-        if dataStore == 'redis':
-            try:
-                    from redis import Redis
-                    self.dataStore = Redis(config.get('host'))
-            except Exception:
-                    # TODO: add exception
-                    pass
-                    #register_exception(alert_admin=True)
-
-        else:
-            # TODO: maybe warning?
-            from invenio_obelix import pyredis
-            self.dataStore = pyredis.PyRedis()
-
-        #self.redis = redis or obelix_get_redis()
-        self.userKey = userKey
-
-        #self.redis_prefix = "obelix::"
+        self.keyObelixSettings = "obelix::settings"
+        self.userKey = config.get('userKey', 'uid')
         self.dataStore_prefix = "obelix::"
-        self.recommendations_impact = 0.5
-        self.score_upper_limit = 1
-        self.score_lower_limit = 0.2
-        self.score_min_limit = 10
-        self.score_min_multiply = 4
-        self.score_one_result = 1.0
-        self.method_switch_limit = 20.0
-        #self.redis_timeout_search_result = 300
-        self.dataStore_timeout_search_result = 300
 
-        self.update_settings()
+        result = json.loads(self.dataStore.get(redis_key))
 
-    def dump(self):
-        """
-        Generates a dictionary that we may dump to json
-        :return:
-        """
-        # TODO: change redis to dataStore prefix / also in Obelix
-        return {'redis_prefix': self.dataStore_prefix,
-                'recommendations_impact': self.recommendations_impact,
-                'score_upper_limit': self.score_upper_limit,
-                'score_lower_limit': self.score_lower_limit,
-                'score_min_limit': self.score_min_limit,
-                'score_min_multiply': self.score_min_multiply,
-                'score_one_result': self.score_one_result,
-                'method_switch_limit': self.method_switch_limit,
-                'redis_timeout_search_result': self.dataStore_timeout_search_result}
+        # We have to make sure all settings are of correct type
+        self.dataStore_prefix = result.get('dataStore_prefix', 'obelix::')
+        self.recommendations_impact = float(result.get('recommendations_impact', 0.5))
+        self.score_lower_limit = float(result.get('score_lower_limit', 0.2))
+        self.score_upper_limit = float(result.get('score_upper_limit', 1))
+        self.score_min_limit = int(result.get('score_min_limit', 10))
+        self.score_min_multiply = int(result.get('score_min_multiply', 4))
+        self.score_one_result = float(result.get('score_one_result', 1))
+        self.method_switch_limit = float(result.get('method_switch_limit', 20))
+        self.dataStore_timeout_search_result = int(result.get('redis_timeout_search_result', 300))
+
 
     def redis_key(self, *keys):
         """
@@ -201,7 +146,6 @@ class _SearchEngineConfig(object):
         :return
             str - to use as a key in redis
         :raises
-
         """
         key = "::".join([str(x) for x in keys])
         return "{0}{1}".format(self.dataStore_prefix, key)
@@ -221,131 +165,60 @@ class _SearchEngineConfig(object):
             TypeError: TypeError: expected string or buffer, if anything else than a str is stored
             ValueError: No JSON object could be decoded (invalid json format)
         """
-        recommendations_cached = self.dataStore.get(self.redis_key("recommendations", uid))
+        recommendations = self.dataStore.get(self.redis_key("recommendations", uid))
 
-
-        if recommendations_cached:
-            result = {}
-
-            for key, value in json.loads(recommendations_cached).iteritems():
+        result = {}
+        if recommendations:
+            for key, value in json.loads(recommendations).iteritems():
                 result[int(key)] = float(value)
 
-            return result
+        return result
 
-        return {}
-
-    def update_settings(self):
+    def rank(self, hitset, uid):
         """
-        Updates the default settings with values from redis
-        :return: self
+        hitset = records
+        :return: a tuple records, scores - sorted by the ranking based on
+        recommendations
         """
-
-        redis_key = "obelix::settings"
-        cache = self.dataStore.get(redis_key)
-
-        result = None
-
-        if cache:
-            result = json.loads(cache)
-
-        if result:
-            try:
-
-                # We have to make sure all settings are of correct type
-                self.dataStore_prefix = result['redis_prefix']
-                self.recommendations_impact = float(result['recommendations_impact'])
-                self.score_lower_limit = float(result['score_lower_limit'])
-                self.score_upper_limit = float(result['score_upper_limit'])
-                self.score_min_limit = int(result['score_min_limit'])
-                self.score_min_multiply = int(result['score_min_multiply'])
-                self.score_one_result = float(result['score_one_result'])
-                self.method_switch_limit = float(result['method_switch_limit'])
-                self.dataStore_timeout_search_result = int(result['redis_timeout_search_result'])
-
-            # if we run into a key error, ignore and use default settings
-            except KeyError:
-                pass
-
-        return self
-
-class _SearchEngine(object):
-    def __init__(self, uid, hitset, config, redis=None):
-        """
-        ObelixSearchEngine class, built as a class to reuse
-        settings and stored data (recommendations)
-
-        :param uid: the current user logged in
-        :param hitset: the list of records (per collection) that we want to re-rank
-        :param redis: mainly used for mocking, set redis to RedisMock when running tests
-        :return:
-            ObelixSearchEngine object, usage example:
-
-                search_engine = ObelixSearchEngine(uid, records)
-                search_engine.rank() --> returns list of records and scores, sorted recommendations
-                search_engine.rank() --> [1,12,3,4], [0.9,0.8,0.7,0.6]
-
-        """
-
-        self.settings = config
-        self.dataStore = self.settings.dataStore
-        self.uid = uid
-        self.__hitset = hitset
-
-        self.recommendations = self.settings.fetch_recommendations(self.uid)
-        self.ranked_records_by_order, self.ranked_scores_by_order = self._rank_records_by_order()
-
-    def rank(self):
-        """
-        :param rg: how many records we need to return (top x records)
-        :param jrec: the offset from where to start, if the (page two usually means jrec=10)
-        :return: a tuple records, scores - sorted by the ranking based on recommendations
-        """
+        recommendations = self.fetch_recommendations(uid)
+        records_by_order = self._rank_records_by_order(hitset)
 
         # If the recommendations have no impact on the final result, we can just skip this!
         # We don't even need to sort, everything is sorted already (by order)
-        if self.settings.recommendations_impact == 0:
-            return self.ranked_records_by_order, self.ranked_scores_by_order
+        if self.recommendations_impact == 0:
+            return self._sort_records_by_score(records_by_order)
 
         # If the user does not have any recommendations, we can just return
         if len(self.recommendations) == 0:
-            return self.ranked_records_by_order, self.ranked_scores_by_order
+            return self._sort_records_by_score(records_by_order)
 
         final_scores = {}
-        recid_count = 0
-
-        for recid in self.ranked_records_by_order:
-            final_scores[recid] = self._get_score(recid, recid_count)
-            recid_count += 1
+        for recid, recScore in records_by_order:
+            final_scores[recid] = \
+                    self._calc_score(recommendations.get(recid, None), recScore)
 
         return self._sort_records_by_score(final_scores)
 
-    def _get_score(self, recid, recid_index):
+
+    def _calc_score(self, scoreByRecommendation, scorceByOrder):
         """
-        Returns a score for a given recid, the score is combined from the order and recommendation
+        Returns a score for a given recid, the score is combined from the
+        order and recommendation
         :param recid: the recid we want to score
         :param recid_index: the position of the given recid in the original hitset
         :return: a float, the final score for the recid
         """
+        # TODO: Check if this fits
+        order_score = scorceByOrder * (1 - self.recommendations_impact)
 
-        recommendations_impact = self.settings.recommendations_impact
-        order_score = self.ranked_scores_by_order[recid_index] * (1 - recommendations_impact)
-
-        if recid in self.recommendations:
-            recommended_score = self.recommendations[recid] * recommendations_impact
+        if scoreByRecommendation is not None:
+            recommended_score = scoreByRecommendation * self.recommendations_impact
             return order_score + recommended_score
 
         return order_score
 
-    @property
-    def _get_hitset(self):
-        """
-        Returns the original hitset list[int,int], for instance: [1,2,3]
-        :return:
-            The original hitset passed to the object, may be an empty list
-        """
-        return self.__hitset
 
-    def _rank_records_by_order(self):
+    def _rank_records_by_order(self, hitset):
         """
         Rank the records by the original order they we're provided
 
@@ -357,28 +230,33 @@ class _SearchEngine(object):
         :return:
             A tuple, one list with records and one with scores.
             The list of records are integers while the scores are floats: [1,2,3],[.9,.8,7] etc...
-
         """
-
-        if len(self._get_hitset) == 1:
-            return self.__hitset, [self.settings.score_one_result]
+        if len(hitset) == 1:
+            return hitset, [self.score_one_result]
 
         upper = 1
-        lower = self.settings.score_lower_limit
-        size = len(self._get_hitset)
+        lower = self.score_lower_limit
+        size = len(hitset)
 
-        if size < self.settings.score_min_limit:
-            size *= self.settings.score_min_multiply
+        # TODO: Check why
+        if size < self.score_min_limit:
+            size *= self.score_min_multiply
 
         step = ((upper - lower) * 1.0 / size)
         scores = [1 - (lower + i * step) for i in range(0, size)]
+        scores = scores[0:len(hitset)]
 
-        return self._get_hitset, scores[0:len(self._get_hitset)]
+        rankedHitseta = {}
+        for idx, score in enumerate(scores):
+            result[hitset[idx]] = score
+
+        return rankedHitset
 
     def _sort_records_by_score(self, record_scores):
         """
         :param record_scores: dictionary {1:0.2, 2:0.3 etc...
-        :return: a tuple with two lists, the first is a list of records and the second of scores
+        :return: a tuple with two lists, the first is a list of records
+        and the second of scores
         """
         records = []
         scores = []
@@ -388,6 +266,63 @@ class _SearchEngine(object):
             scores.append(record_scores[recid])
 
         return records, scores
+
+
+
+class ObelixLogger(object):
+    """ ObelixSearchEngineLogger used to store page views, downloads and search results """
+
+    def get_log_prefix(self, *name):
+        """Generates the redis key, the main use case is to ensure we always use the prefix"""
+        return self.settings.redis_key(*name)
+
+
+    def log_search_result(self, user_info, original_result_ordered, record_ids,
+                      results_final_colls_scores, cols_in_result_ordered,
+                      seconds_to_rank_and_print, jrec, rg, rm, cc):
+        """ Logs search result, used for both statistics and to lookup last search """
+        if self.user_info_valid(user_info):
+            uid = self.get_uid(user_info)
+            search_timestamp = time.time()
+
+            # Store the current search to use with page views later
+            redis_key = self.get_redis_key("last-search-result", uid)
+            data = json.dumps({'search_timestamp': search_timestamp,
+                               'record_ids': record_ids,
+                               'jrec': jrec,
+                               'rm': rm,
+                               'rg': rg,
+                               'cc': cc})
+            self.settings.redis.set(redis_key, data, self.settings.redis_timeout_search_result)
+
+            # Store search result for statistics
+            data = {'obelix_redis': CFG_WEBSEARCH_OBELIX_REDIS,
+                    'obelix_uid': self.settings.userKey,
+                    'result': record_ids,
+                    'original_result_ordered': original_result_ordered,
+                    'results_final_colls_scores': results_final_colls_scores,
+                    'uid': uid,
+                    'remote_ip': user_info.get("remote_ip"),
+                    'uri': user_info.get('uri'),
+                    'timestamp': search_timestamp,
+                    'settings': self.settings.dump(),
+                    'recommendations': self.settings.fetch_recommendations(uid),
+                    'seconds_to_rank_and_print': seconds_to_rank_and_print,
+                    'cols_in_result_ordered': cols_in_result_ordered,
+                    'jrec': jrec,
+                    'rg': rg,
+                    'rm': rm,
+                    'cc': cc}
+
+            data = json.dumps(data)
+            redis_key = self.get_redis_key("statistics-search-result")
+            self.settings.redis.lpush(redis_key, data)
+
+
+
+
+
+
 
 
 class _SearchEngineLogger(object):
