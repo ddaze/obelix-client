@@ -32,7 +32,8 @@ class Obelix(object):
     searchLogger = None
     def __init__(self, config, userKey='uid'):
         """
-        Initializes the queue
+        config and userKey should be mapped to CFG_WEBSEARCH_OBELIX_CONFIG,
+                                               CFG_WEBSEARCH_OBELIX_USER_KEY
         TODO: change to redis or internal
         param config: {dataStoreName: 'redis', host: '1270.0.0.1', port: 6379}
         """
@@ -148,7 +149,6 @@ class _SearchEngineConfig(object):
         if dataStore == 'redis':
             try:
                     from redis import Redis
-
                     self.dataStore = Redis(config.get('host'))
             except Exception:
                     # TODO: add exception
@@ -156,10 +156,9 @@ class _SearchEngineConfig(object):
                     #register_exception(alert_admin=True)
 
         else:
-            # example = pyredis
-            # TODO: Create internal datastore
-
-            self.dataStore = None
+            # TODO: maybe warning?
+            from invenio_obelix import pyredis
+            self.dataStore = pyredis.PyRedis()
 
         #self.redis = redis or obelix_get_redis()
         self.userKey = userKey
