@@ -35,25 +35,66 @@ Links
 * `development <https://github.com/inveniosoftware/invenio>`_
 
 """
+import os
+import sys
 
 from setuptools import setup
+from setuptools.command.test import test as TestCommand
+
+requirements = [
+    '',
+]
+
+test_requirements = [
+    'pytest',
+    'pytest-cov',
+    'pytest-pep8',
+    'coverage',
+]
+
+
+class PyTest(TestCommand):
+    user_options = [('pytest-args=', 'a', "Arguments to pass to py.test")]
+
+    def initialize_options(self):
+        TestCommand.initialize_options(self)
+        self.pytest_args = []
+        try:
+            from ConfigParser import ConfigParser
+        except ImportError:
+            from configparser import ConfigParser
+        config = ConfigParser()
+        config.read('pytest.ini')
+        self.pytest_args = config.get('pytest', 'addopts').split(' ')
+
+    def finalize_options(self):
+        TestCommand.finalize_options(self)
+        self.test_args = []
+        self.test_suite = True
+
+    def run_tests(self):
+        # import here, cause outside the eggs aren't loaded
+        import pytest
+        import _pytest.config
+        pm = _pytest.config.get_plugin_manager()
+        pm.consider_setuptools_entrypoints()
+        errno = pytest.main(self.pytest_args)
+        sys.exit(errno)
 
 setup(
-    name='invenio-obelix',
+    name='obelix-client',
     version=0.1,
     description='Invenio integration with Obelix recommendation system.',
-    url='https://github.com/inveniosoftware/invenio-obelix',
+    url='https://github.com/inveniosoftware/obelix-client',
     license='GPLv2',
     author='CERN',
     author_email='info@invenio-software.org',
     long_description=__doc__,
-    packages=['invenio_obelix'],
+    packages=['obelix_client'],
     include_package_data=True,
     zip_safe=False,
     platforms='any',
-    install_requires=[
-        #'click>=2.0',
-    ],
+    install_requires=requirements,
     classifiers=[
         'Development Status :: 1 - Planning',
         'Environment :: Web Environment',
@@ -61,5 +102,6 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
     ],
+    tests_require=test_requirements,
+    cmdclass={'test': PyTest},
 )
-
