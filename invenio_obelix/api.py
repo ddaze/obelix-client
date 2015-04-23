@@ -29,30 +29,62 @@ def get_logger():
 
 class Obelix(object):
 
-    def __init__(self, storage, queue, logger=None):
+    def __init__(self, storage, queue, userIdentifer='uid', logger=None):
         self.storage = storage
         self.queue = queue
         self.logger = logger or get_logger()
 
-    def rank_records(hitset, user_identifier=None, rg=10, jrec=0):
+
+        self.userIdentifer = userIdentifer
+        result = self.storage.getFromJson('settings')
+        # TODO: make settings configurable
+        # We have to make sure all settings are of correct type
+        #self.dataStore_prefix = result.get('dataStore_prefix', 'obelix::')
+        self.recommendations_impact = float(result.get('recommendations_impact', 0.5))
+        self.score_lower_limit = float(result.get('score_lower_limit', 0.2))
+        self.score_upper_limit = float(result.get('score_upper_limit', 1))
+        self.score_min_limit = int(result.get('score_min_limit', 10))
+        self.score_min_multiply = int(result.get('score_min_multiply', 4))
+        self.score_one_result = float(result.get('score_one_result', 1))
+        self.method_switch_limit = float(result.get('method_switch_limit', 20))
+        self.dataStore_timeout_search_result = int(result.get('redis_timeout_search_result', 300))
+
+    def rank_records(hitset, rg=10, jrec=0):
         """
         Ranks a given search result based on recommendations
         Expects the hitset to be sorted by latest last [1,2,3,4,5] (recids)
+        :return:
+            A tuple, one list with records and one with scores.
+            The list of records are integers while the scores are floats: [1,2,3],[.9,.8,7] etc...
         """
         hitset = list(hitset)
         hitset.reverse()
         jrec = max(jrec - 1, 0)
 
         # TODO: Maybe cache ranked result, if the next page is loaded
-        result =  _SearchEngine(uid, hitset, config=self.config).rank()
-        if result is not None:
-            records, scores = result
-            return records[jrec:jrec + rg], scores[jrec:jrec + rg]
+        records_by_order = rank_records_by_order(hitset)
 
-        self.logger("FIXME consider propagating error")
-        # return hitset[jrec:jrec + rg], None #[0] * len(hitset[jrec:jrec + rg])
+        # Get Recommendations from storage
+        # TODO: How to name storage.get Function?
+        recommendations = selt.storage.getFromTable('recommendations',
+                                                    self.userIdentifer)
+        # FIXME: getIntDict enforce data types
+        recommendations = getIntDict(recommendations)
 
-        return None
+        # If the user does not have any recommendations, we can just return
+        if len(recommendations) == 0 | self.recommendations_impact == 0:
+            finalScores = records_by_order
+        else:
+            # Calculate scores
+            finalScores = calcScores(records_by_order, recommendations)
+
+        records, scores = self._sort_records_by_score(final_scores)
+
+        # TODO: implement error check
+        # self.logger("FIXME consider propagating error")
+        return records[jrec:jrec + rg], scores[jrec:jrec + rg]
+
+
 
     def log(action, *args, **kwargs):
         return getattr(self, 'log_' + action)(*args, **kwargs)
@@ -113,6 +145,96 @@ class Obelix(object):
                                                     type="events.downloads", file_format="PDF")
         except Exception:
             register_exception(alert_admin=True)
+
+
+
+#Utils
+
+def getIntDict(dataDict):
+    """ Retrieves the recommendation for the self.uid (current user) from redis
+
+    The cached recommendations may be on the form {'123': 0.2.. but we want {123: 0.2
+    Therefore we have to enforce that the keys in the resulting dictionary are integers
+
+    :return
+        dict with recommendations if any with the user id as the key {123: 0.3, 321: 0.2}
+        empty dict if no recommendations
+
+    :raises
+        redis.ConnectionError if redis is unavailable
+        TypeError: TypeError: expected string or buffer, if anything else than a str is stored
+        ValueError: No JSON object could be decoded (invalid json format)
+    """
+    result = {}
+    for key, value in dataDict:
+        result[int(key)] = float(value)
+
+    return result
+
+    def rank_records_by_order(self, hitset):
+        """
+        Rank the records by the original order they we're provided
+
+        If the SearchEngineObelix([1,2,3]) then this method will return [1.0, 0.933, 0.867]
+
+        Typically called like this:
+            records, scores = __build_ranked_by_order()
+
+        :return:
+            A tuple, one list with records and one with scores.
+            The list of records are integers while the scores are floats: [1,2,3],[.9,.8,7] etc...
+        """
+        if len(hitset) == 1:
+            return hitset, [self.score_one_result]
+
+        upper = 1
+        lower = self.score_lower_limit
+        size = len(hitset)
+
+        # TODO: Check why
+        if size < self.score_min_limit:
+            size *= self.score_min_multiply
+
+        step = ((upper - lower) * 1.0 / size)
+        scores = [1 - (lower + i * step) for i in range(0, size)]
+        scores = scores[0:len(hitset)]
+
+        rankedHitseta = {}
+        for idx, score in enumerate(scores):
+            result[hitset[idx]] = score
+
+        return rankedHitset
+
+    def sort_records_by_score(self, record_scores):
+        """
+        :param record_scores: dictionary {1:0.2, 2:0.3 etc...
+        :return: a tuple with two lists, the first is a list of records
+        and the second of scores
+        """
+        records = []
+        scores = []
+
+        for recid in sorted(record_scores, key=record_scores.get, reverse=True):
+            records.append(recid)
+            scores.append(record_scores[recid])
+
+        return records, scores
+
+    def calcScores(records_by_order, recommendations, recommendations_impact):
+        final_scores = {}
+
+        for recid, recScore in records_by_order:
+            recommendationScore = recommendations.get(recid, None)
+            # TODO: Check if this fits
+            finalScore = order_score = recScore * (1 - recommendations_impact)
+            if recommendationScore:
+                recommended_score = recomendationScore * recommendations_impact
+                finalScore = order_score + recommended_score
+
+            final_scores[recid] = finalScore
+
+        return final_scores
+
 
 
 class Recommender(object):
