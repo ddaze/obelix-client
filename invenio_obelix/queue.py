@@ -10,11 +10,19 @@ class Queue(object):
             self.queues[queue] = []
         self.queues[queue].insert(0, value)
 
+    def lpushToTabel(self, table, queue, value):
+        key = "{0}::{1}".format(table, queue)
+        self.lpush(key, vaule)
+
     def rpush(self, queue, value):
         if not self.queues.get(queue, None):
             # Create queue
             self.queues[queue] = []
         self.queues[queue].append(value)
+
+    def rpushToTabel(self, table, queue, value):
+        key = "{0}::{1}".format(table, queue)
+        self.rpush(key, vaule)
 
     def rpop(self, queue):
         #TODO: Exeception or None?
