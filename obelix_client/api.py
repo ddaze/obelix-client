@@ -134,38 +134,36 @@ class Obelix(object):
         :param recid:
         :return:
         """
-        try:
-            self.searchLogger.page_view(user_info, recid,
-                                        type="events.pageviews",
-                                        file_format="page_view")
-        except Exception:
-            register_exception(alert_admin=True)
+        # TODO: Check if needed
+        self.log_page_view(user_info, recid,
+                           type="events.pageviews",
+                           file_format="page_view")
 
     def log_download_after_search(user_info, recid):
         """
-        Public method
         We want to store downloads of PDFs as views
         (because users may click directly on download)
         :param user_info:
         :param recid:
         :return:
         """
+        # TODO: Check if needed
         if 'uri' in user_info and '.pdf' in user_info['uri'].lower():
             self.searchLogger.page_view(user_info, recid,
                                         type="events.downloads",
                                         file_format="PDF")
 
-    def page_view(self, user_info, recid, type="events.pageviews", file_format="view"):
+    def log_page_view(self, user_info, recid, type="events.pageviews", file_format="view"):
         """ Logs a page view """
         # TODO: Maybe check if valid user
         uid = user_info.get('uid', None)
         ip = user_info.get('remote_ip', None)
         uri = user_info.get('uri', None)
 
-        self._log_page_view_for_neo_feeder(uid, recid, ip, type, file_format)
-        self._log_page_view_for_analytics(uid, recid, ip, uri, type)
+        self.log_page_view_for_neo_feeder(uid, recid, ip, type, file_format)
+        self.log_page_view_for_analytics(uid, recid, ip, uri, type)
 
-    def _log_page_view_for_neo_feeder(self, uid, recid, remote_ip, type, file_format):
+    def log_page_view_for_neo_feeder(self, uid, recid, remote_ip, type, file_format):
         """
         Feed the Obelix NeoFeeder with new page views, used to construct the graph
         :param uid:
@@ -184,7 +182,7 @@ class Obelix(object):
         # TODO: check r- or l-push
         self.queues.rpush("logentries", data)
 
-    def _log_page_view_for_analytics(self, uid, recid, ip, uri, type):
+    def log_page_view_for_analytics(self, uid, recid, ip, uri, type):
         """ Mainly used to store statistics, may be removed in the future
         :param uid:
         :param recid:
@@ -192,6 +190,7 @@ class Obelix(object):
         :param uri:
         :return:
         """
+        # TODO: Check if needed
         last_search_info = self.storage.getFromTable("last-search-result", uid)
 
         if not last_search_info:
@@ -209,10 +208,8 @@ class Obelix(object):
                 rm = last_search_info['rm']
                 cc = last_search_info['cc']
 
-                redis_key = self.get_redis_key()
-
-                recommendations = self.settings.fetch_recommendations(uid)
-
+                recommendations = self.storage.getFromTable('recommendations',
+                                                            uid),
                 self.queues.lpush(
                     "statistics-page-view",
                     {'search_timestamp': timestamp,

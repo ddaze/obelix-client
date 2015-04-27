@@ -168,4 +168,30 @@ class TestObelix:
         assert str(user_info['uid']) == str(logQueue['uid'])
         assert user_info['remote_ip'] == logQueue['remote_ip']
 
+    def test_log_page_view(self):
+        storage = Storage()
+        queues = Queues()
+        obelix = Obelix(storage, queues)
+
+        user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
+        record_ids = [[1, 88], [1, 2]]
+        results_final_colls_scores = [[0.3, 0.5], [0.5, 0.2]]
+        cols_in_result_ordered = ["Thesis", "Another"]
+        seconds_to_rank_and_print = 2
+
+        jrec, rg, rm, cc = 0, 10, "recommendations", "obelix"
+
+        obelix.log('search_result', user_info, record_ids, record_ids,
+                                                           results_final_colls_scores,
+                                                           cols_in_result_ordered,
+                                                           seconds_to_rank_and_print,
+                                                           jrec, rg, rm, cc)
+        obelix.log('page_view', user_info, 1)
+
+        logged = queues.lpop("statistics-page-view")
+        assert str(logged['uid']) == '1'
+
+        logged = queues.lpop("logentries")
+        assert logged['type'] ==  "events.pageviews"
+        assert str(logged['user']) == '1'
 

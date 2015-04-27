@@ -1,4 +1,5 @@
 import json
+import msgpack
 
 
 class Storage(object):
@@ -12,10 +13,10 @@ class Storage(object):
         """
         return self.storage.get(key, default)
 
-    def getFromTable(self, table, key):
+    def getFromTable(self, table, key, default=None):
         storageKey = "{0}::{1}".format(table, key)
 
-        return self.get(storageKey)
+        return self.get(storageKey, default)
 
     def set(self, key, value):
         """
@@ -31,15 +32,21 @@ class Storage(object):
 
 
 class RedisStorage(Storage):
-    def __init__(self, prefix=None, timeout=300):
+    def __init__(self, redis, prefix=None):
         self.prefix = prefix
         self.storage = {}
+        self.redis = redis
 
     def get(self, key, default=None):
-        if isinstance(value, dict):
-            # TODO: improve error check
-            result = json.loads(self.get(key))
+        if self.prefix:
+            key = "{0}::{1}".format(self.prefix, key)
+        data = msgpack.unpackb(self.redis.get(key))
 
-        if isinstance(value, dict):
-            # FIXME: error checks
-            value = json.dumps(value)
+        # FIXME: Default value, error?
+        return data
+
+    def set(self, key, value):
+        if self.prefix:
+            key = "{0}::{1}".format(self.prefix, key)
+        data = msgpack.packb(value)
+        self.redis.set(key, value)
