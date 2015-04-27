@@ -20,6 +20,7 @@
 
 import time
 import logging
+import obelix_client.utils as utils
 
 
 def get_logger():
@@ -29,25 +30,13 @@ def get_logger():
 class Obelix(object):
 
     def __init__(self, storage, queues, userIdentifer='uid', logger=None):
+        self.logger = logger or get_logger()
         self.storage = storage
         self.queues = queues
-        self.logger = logger or get_logger()
+        self.conf = Settings(storage)
+        self.conf['userIdentifer'] = userIdentifer
 
-        self.userIdentifer = userIdentifer
-        result = self.storage.getDict('settings')
-        # TODO: make settings configurable
-        # We have to make sure all settings are of correct type
-        # self.dataStore_prefix = result.get('dataStore_prefix', 'obelix::')
-        self.recommendations_impact = float(result.get('recommendations_impact', 0.5))
-        self.score_lower_limit = float(result.get('score_lower_limit', 0.2))
-        self.score_upper_limit = float(result.get('score_upper_limit', 1))
-        self.score_min_limit = int(result.get('score_min_limit', 10))
-        self.score_min_multiply = int(result.get('score_min_multiply', 4))
-        self.score_one_result = float(result.get('score_one_result', 1))
-        self.method_switch_limit = float(result.get('method_switch_limit', 20))
-        self.dataStore_timeout_search_result = int(result.get('redis_timeout_search_result', 300))
-
-    def rank_records(hitset, rg=10, jrec=0):
+    def rank_records(self, hitset, userId, rg=10, jrec=0):
         """
         Ranks a given search result based on recommendations
         Expects the hitset to be sorted by latest last [1,2,3,4,5] (recids)
@@ -60,35 +49,34 @@ class Obelix(object):
         jrec = max(jrec - 1, 0)
 
         # TODO: Maybe cache ranked result, if the next page is loaded
-        records_by_order = rank_records_by_order(hitset)
+        records_by_order = utils.rank_records_by_order(self.conf, hitset)
 
         # Get Recommendations from storage
         # TODO: How to name storage.get Function?
-        recommendations = selt.storage.getFromTable('recommendations',
-                                                    self.userIdentifer)
+        recommendations = self.storage.getFromTable('recommendations', userId)
         # FIXME: getIntDict enforce data types
-        recommendations = getIntDict(recommendations)
+        recommendations = utils.getIntDict(recommendations)
 
         # If the user does not have any recommendations, we can just return
-        if len(recommendations) == 0 | self.recommendations_impact == 0:
+        if len(recommendations) == 0 or self.conf['recommendations_impact'] == 0:
             finalScores = records_by_order
         else:
             # Calculate scores
-            finalScores = calcScores(records_by_order, recommendations)
+            finalScores = utils.calcScores(self.conf, records_by_order, recommendations)
 
-        records, scores = self._sort_records_by_score(final_scores)
+        records, scores = utils.sort_records_by_score(finalScores)
 
         # TODO: implement error check
         # self.logger("FIXME consider propagating error")
         return records[jrec:jrec + rg], scores[jrec:jrec + rg]
 
-    def log(action, *args, **kwargs):
+    def log(self, action, *args, **kwargs):
         return getattr(self, 'log_' + action)(*args, **kwargs)
 
-    def log_search_result_obelix(user_info, original_result_ordered,
-                                 record_ids, results_final_colls_scores,
-                                 cols_in_result_ordered,
-                                 seconds_to_rank_and_print, jrec, rg, rm, cc):
+    def log_search_result(self, user_info, original_result_ordered,
+                          record_ids, results_final_colls_scores,
+                          cols_in_result_ordered,
+                          seconds_to_rank_and_print, jrec, rg, rm, cc):
         """
         Logs search result, used for both statistics and to lookup last search
         :param user_info:
@@ -118,7 +106,7 @@ class Obelix(object):
 
         # Store search result for statistics
         data = {'obelix_redis': "CFG_WEBSEARCH_OBELIX_REDIS",
-                'obelix_uid': self.settings.userKey,
+                'obelix_uid': self.conf['userIdentifer'],
                 'result': record_ids,
                 'original_result_ordered': original_result_ordered,
                 'results_final_colls_scores': results_final_colls_scores,
@@ -126,14 +114,16 @@ class Obelix(object):
                 'remote_ip': user_info.get("remote_ip"),
                 'uri': user_info.get('uri'),
                 'timestamp': search_timestamp,
-                'settings': self.settings.dump(),
-                'recommendations': self.settings.fetch_recommendations(uid),
+                'settings': self.conf,
+                'recommendations': self.storage.getFromTable('recommendations',
+                                                             uid),
                 'seconds_to_rank_and_print': seconds_to_rank_and_print,
                 'cols_in_result_ordered': cols_in_result_ordered,
                 'jrec': jrec,
                 'rg': rg,
                 'rm': rm,
                 'cc': cc}
+        # TODO: Does it make sense to use more queues?
         queueName = "{0}::{1}".format("statistics-search-result", uid)
         self.queues.lpush(queueName, data)
 
@@ -242,3 +232,22 @@ class Obelix(object):
                      'type': type})
 
             hit_number_global += len(collection_result)
+
+
+class Settings(dict):
+    def __init__(self, storage):
+        super(Settings, self).__init__()
+        self.storage = storage
+
+        result = self.storage.get('settings', {})
+        # TODO: make settings configurable
+        # We have to make sure all settings are of correct type
+        # self.dataStore_prefix = result.get('dataStore_prefix', 'obelix::')
+        self['recommendations_impact'] = float(result.get('recommendations_impact', 0.5))
+        self['score_lower_limit'] = float(result.get('score_lower_limit', 0.2))
+        self['score_upper_limit'] = float(result.get('score_upper_limit', 1))
+        self['score_min_limit'] = int(result.get('score_min_limit', 10))
+        self['score_min_multiply'] = int(result.get('score_min_multiply', 4))
+        self['score_one_result'] = float(result.get('score_one_result', 1))
+        self['method_switch_limit'] = float(result.get('method_switch_limit', 20))
+        self['dataStore_timeout_search_result'] = int(result.get('redis_timeout_search_result', 300))

@@ -6,11 +6,11 @@ class Storage(object):
         self.prefix = prefix
         self.storage = {}
 
-    def get(self, key):
+    def get(self, key, default=None):
         """
         Get value on key
         """
-        return self.storage.get(key, None)
+        return self.storage.get(key, default)
 
     def getFromTable(self, table, key):
         storageKey = "{0}::{1}".format(table, key)
@@ -35,7 +35,7 @@ class RedisStorage(Storage):
         self.prefix = prefix
         self.storage = {}
 
-    def get(self, key, value):
+    def get(self, key, default=None):
         if isinstance(value, dict):
             # TODO: improve error check
             result = json.loads(self.get(key))
