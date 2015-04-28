@@ -1,31 +1,4 @@
 
-def getIntDict(dataDict):
-    """ Retrieves the recommendation for the self.uid (current user)
-    from redis
-
-    The cached recommendations may be on the form
-    {'123': 0.2.. but we want {123: 0.2
-    Therefore we have to enforce that the keys in the
-    resulting dictionary are integers
-
-    :return
-        dict with recommendations if any with the user id as the
-        key {123: 0.3, 321: 0.2} empty dict if no recommendations
-
-    :raises
-        redis.ConnectionError if redis is unavailable
-        TypeError: TypeError: expected string or buffer,
-        if anything else than a str is stored
-        ValueError: No JSON object could be decoded (invalid json format)
-    """
-    result = {}
-    if dataDict:
-        for key, value in dataDict.items():
-            result[int(key)] = float(value)
-
-    return result
-
-
 def rank_records_by_order(conf, hitset):
     """
     Rank the records by the original order they we're provided

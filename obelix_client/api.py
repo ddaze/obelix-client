@@ -21,6 +21,8 @@
 import time
 import logging
 import obelix_client.utils as utils
+from blinker import signal
+from obelix_client.recivers import QueueSignals
 
 
 def get_logger():
@@ -32,9 +34,23 @@ class Obelix(object):
     def __init__(self, storage, queues, userIdentifer='uid', logger=None):
         self.logger = logger or get_logger()
         self.storage = storage
+        # self.storage_last_search_result =
         self.queues = queues
-        self.conf = Settings(storage)
-        self.conf['userIdentifer'] = userIdentifer
+        self.signals = QueueSignals(queues)
+        self.signals.connect()
+        self.config = {'recommendations_impact': 0.5,
+                       'score_lower_limit': 0.2,
+                       'score_upper_limit': 10,
+                       'score_min_limit': 10,
+                       'score_min_multiply': 4,
+                       'score_one_result': 1,
+                       'method_switch_limit': 20}
+        self.config['userIdentifer'] = userIdentifer
+
+        # Save config to DB if not exist
+        config_db = self.storage.get("settings", None)
+        if config_db is None:
+            self.storage.set("settings", self.config)
 
     def rank_records(self, hitset, userId, rg=10, jrec=0):
         """
@@ -49,7 +65,7 @@ class Obelix(object):
         jrec = max(jrec - 1, 0)
 
         # TODO: Maybe cache ranked result, if the next page is loaded
-        records_by_order = utils.rank_records_by_order(self.conf, hitset)
+        records_by_order = utils.rank_records_by_order(self.config, hitset)
 
         # Get Recommendations from storage
         # TODO: How to name storage.get Function?
@@ -58,11 +74,11 @@ class Obelix(object):
         recommendations = utils.getIntDict(recommendations)
 
         # If the user does not have any recommendations, we can just return
-        if len(recommendations) == 0 or self.conf['recommendations_impact'] == 0:
+        if len(recommendations) == 0 or self.config['recommendations_impact'] == 0:
             finalScores = records_by_order
         else:
             # Calculate scores
-            finalScores = utils.calcScores(self.conf, records_by_order, recommendations)
+            finalScores = utils.calcScores(self.config, records_by_order, recommendations)
 
         records, scores = utils.sort_records_by_score(finalScores)
 
@@ -106,7 +122,7 @@ class Obelix(object):
 
         # Store search result for statistics
         data = {'obelix_redis': "CFG_WEBSEARCH_OBELIX_REDIS",
-                'obelix_uid': self.conf['userIdentifer'],
+                'obelix_uid': self.config['userIdentifer'],
                 'result': record_ids,
                 'original_result_ordered': original_result_ordered,
                 'results_final_colls_scores': results_final_colls_scores,
@@ -114,7 +130,7 @@ class Obelix(object):
                 'remote_ip': user_info.get("remote_ip"),
                 'uri': user_info.get('uri'),
                 'timestamp': search_timestamp,
-                'settings': self.conf,
+                'settings': self.config,
                 'recommendations': self.storage.getFromTable('recommendations',
                                                              uid),
                 'seconds_to_rank_and_print': seconds_to_rank_and_print,
@@ -123,9 +139,9 @@ class Obelix(object):
                 'rg': rg,
                 'rm': rm,
                 'cc': cc}
-        # TODO: Does it make sense to use more queues?
-        queueName = "{0}::{1}".format("statistics-search-result", uid)
-        self.queues.lpush(queueName, data)
+        # queueName = "{0}::{1}".format("statistics-search-result", uid)
+        signal('obelix_intern_statistics_search_result').send(self, data=data)
+        # self.queues.lpush(queueName, data)
 
     def log_page_view_after_search(user_info, recid):
         """
@@ -149,9 +165,9 @@ class Obelix(object):
         """
         # TODO: Check if needed
         if 'uri' in user_info and '.pdf' in user_info['uri'].lower():
-            self.searchLogger.page_view(user_info, recid,
-                                        type="events.downloads",
-                                        file_format="PDF")
+            self.log_page_view(user_info, recid,
+                               type="events.downloads",
+                               file_format="PDF")
 
     def log_page_view(self, user_info, recid, type="events.pageviews", file_format="view"):
         """ Logs a page view """
@@ -178,9 +194,8 @@ class Obelix(object):
             'file_format': file_format,
             "timestamp": time.time()
         }
-
-        # TODO: check r- or l-push
-        self.queues.rpush("logentries", data)
+        # self.queues.rpush("logentries", data)
+        signal('obelix_intern_save_to_neo_feeder').send(self, data)
 
     def log_page_view_for_analytics(self, uid, recid, ip, uri, type):
         """ Mainly used to store statistics, may be removed in the future
@@ -190,12 +205,11 @@ class Obelix(object):
         :param uri:
         :return:
         """
-        # TODO: Check if needed
         last_search_info = self.storage.getFromTable("last-search-result", uid)
 
         if not last_search_info:
             return
-
+        # TODO: Check optimization
         hit_number_global = 0
         for collection_result in last_search_info['record_ids']:
             if recid in collection_result:
@@ -209,42 +223,23 @@ class Obelix(object):
                 cc = last_search_info['cc']
 
                 recommendations = self.storage.getFromTable('recommendations',
-                                                            uid),
-                self.queues.lpush(
-                    "statistics-page-view",
-                    {'search_timestamp': timestamp,
-                     'recid': recid,
-                     'timestamp': time.time(),
-                     'uid': uid,
-                     'remote_ip': ip,
-                     'uri': uri,
-                     'jrec': jrec,
-                     'rg': rg,
-                     'rm': rm,
-                     'cc': cc,
-                     'hit_number_local': jrec + hit_number_local,
-                     'hit_number_global': jrec + hit_number_global,
-                     'recommendations': recommendations,
-                     'recid_in_recommendations': recid in recommendations,
-                     'type': type})
+                                                            uid)
+                data = {'search_timestamp': timestamp,
+                        'recid': recid,
+                        'timestamp': time.time(),
+                        'uid': uid,
+                        'remote_ip': ip,
+                        'uri': uri,
+                        'jrec': jrec,
+                        'rg': rg,
+                        'rm': rm,
+                        'cc': cc,
+                        'hit_number_local': jrec + hit_number_local,
+                        'hit_number_global': jrec + hit_number_global,
+                        'recommendations': recommendations,
+                        'recid_in_recommendations': recid in recommendations,
+                        'type': type}
+                # self.queues.lpush("statistics-page-view", data)
+                signal('obelix_intern_statistics_page_view').send(self, data)
 
             hit_number_global += len(collection_result)
-
-
-class Settings(dict):
-    def __init__(self, storage):
-        super(Settings, self).__init__()
-        self.storage = storage
-
-        result = self.storage.get('settings', {})
-        # TODO: make settings configurable
-        # We have to make sure all settings are of correct type
-        # self.dataStore_prefix = result.get('dataStore_prefix', 'obelix::')
-        self['recommendations_impact'] = float(result.get('recommendations_impact', 0.5))
-        self['score_lower_limit'] = float(result.get('score_lower_limit', 0.2))
-        self['score_upper_limit'] = float(result.get('score_upper_limit', 1))
-        self['score_min_limit'] = int(result.get('score_min_limit', 10))
-        self['score_min_multiply'] = int(result.get('score_min_multiply', 4))
-        self['score_one_result'] = float(result.get('score_one_result', 1))
-        self['method_switch_limit'] = float(result.get('method_switch_limit', 20))
-        self['dataStore_timeout_search_result'] = int(result.get('redis_timeout_search_result', 300))
