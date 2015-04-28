@@ -1,13 +1,13 @@
 
-from obelix_client.storage import Storage
+from obelix_client.storage import DictStorage
 from obelix_client.queues import Queues
 
 class TestStorageDict:
     def setUp(self):
-        self.storage = Storage()
+        self.storage = DictStorage()
 
     def test_set_and_get(self):
-        storage = Storage()
+        storage = DictStorage()
         storage.set("theKey", "theValue")
         storage.set("theKey2", "theValue2")
         assert storage.get("theKey2") == "theValue2"
@@ -15,14 +15,7 @@ class TestStorageDict:
         assert storage.get("noKey") == None
 
     def test_setToTable_and_getToTable(self):
-        storage = Storage()
-        storage.setToTable("tab1", "theKey", "theValue")
-        storage.setToTable("tab2", "theKey2", "theValue2")
-        storage.setToTable("tab2", "theKey", "theValue")
-        assert storage.getFromTable("tab1", "theKey") == "theValue"
-        assert storage.getFromTable("tab2", "theKey2") == "theValue2"
-        assert storage.getFromTable("tab2", "theKey") == "theValue"
-        assert storage.getFromTable("tab1", "theKey2") == None
+        storage = DictStorage()
 
 
 class TestQueueDict:

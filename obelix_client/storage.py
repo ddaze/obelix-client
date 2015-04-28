@@ -3,50 +3,63 @@ import msgpack
 
 
 class Storage(object):
-    def __init__(self, prefix=None, timeout=300):
+    """ Generic Storage:
+        Your storage only has to support get, and set with default values
+    """
+    def __init__(self, storage, prefix=None, encoder=None):
+        """
+        :encoder: has to support load() and dump()
+        """
         self.prefix = prefix
-        self.storage = {}
-
-    def get(self, key, default=None):
-        """
-        Get value on key
-        """
-        return self.storage.get(key, default)
-
-    def getFromTable(self, table, key, default=None):
-        storageKey = "{0}::{1}".format(table, key)
-
-        return self.get(storageKey, default)
-
-    def set(self, key, value):
-        """
-        Sets value on a key
-        """
-        # TODO: Maybe exceptions
-        self.storage[key] = value
-
-    def setToTable(self, table, key, value):
-        storageKey = "{0}::{1}".format(table, key)
-
-        return self.set(storageKey, value)
-
-
-class RedisStorage(Storage):
-    def __init__(self, redis, prefix=None):
-        self.prefix = prefix
-        self.storage = {}
-        self.redis = redis
+        self.encoder = encoder
+        self.storage = storage
 
     def get(self, key, default=None):
         if self.prefix:
             key = "{0}::{1}".format(self.prefix, key)
-        data = msgpack.unpackb(self.redis.get(key))
 
-        # FIXME: Default value, error?
+        data = self.storage.get(key, default)
+        if self.encoder:
+            return self.encoder.load(data)
+
         return data
 
     def set(self, key, value):
         if self.prefix:
             key = "{0}::{1}".format(self.prefix, key)
-        data = msgpack.packb(value)
-        self.redis.set(key, value)
+
+        if self.encoder:
+            value = self.encoder.dump(value)
+
+        self.storage.set(key, value)
+
+
+class RedisStorage(Storage):
+    """ Warapper for Redis:
+        Takes care of the Timeout
+    """
+    def __init__(self, storage, prefix=None, encoder=None):
+        super(RedisStorage, self).__init__(storage, prefix, encoder)
+
+    def get(self, key, default=None):
+        # TODO: Timeout stuff
+        super(RedisStorage, self).get(key, default)
+
+    def set(self, key, value):
+        # TODO: Timeout stuff
+        super(RedisStorage, self).set(key, value)
+
+class DictStorage(Storage):
+    """ Dict Storage is a Simpel Storage based on a local dict:
+    """
+    def __init__(self, storage={}, prefix=None, encoder=None):
+        super(DictStorage, self).__init__(storage, prefix, encoder)
+
+    def set(self, key, value):
+        if self.prefix:
+            key = "{0}::{1}".format(self.prefix, key)
+
+        if self.encoder:
+            value = self.encoder.dump(value)
+
+        self.storage[key] = value

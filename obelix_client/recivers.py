@@ -19,6 +19,12 @@ def connect_redis_queue_signals(api, queue):
         queue.lpush("logentries", data)
 
 
-def connect_redis_storage_signals(api, storage):
+def connect_obelix_signals(api, storage):
     get_recommendations = signal('obelix_get_recommendations')
-    
+
+    @get_recommendations.connect
+    def obelix_get_recommendations(sender, **kwargs):
+        uid = kwargs['uid']
+        storage_key = "{0}::{1}".format("recommendations", uid)
+
+        return storage.get(storage_key)

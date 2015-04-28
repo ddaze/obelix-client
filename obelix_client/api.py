@@ -22,16 +22,18 @@ import time
 import logging
 import obelix_client.utils as utils
 from blinker import signal
+from obelix_client.recivers import connect_obelix_signals
 
-CONFIG =  {'recommendations_impact': 0.5,
-           'score_lower_limit': 0.2,
-           'score_upper_limit': 10,
-           'score_min_limit': 10,
-           'score_min_multiply': 4,
-           'score_one_result': 1,
-           'method_switch_limit': 20,
-           'user_identifier': 'uid',
-           }
+
+CONFIG = {'recommendations_impact': 0.5,
+          'score_lower_limit': 0.2,
+          'score_upper_limit': 10,
+          'score_min_limit': 10,
+          'score_min_multiply': 4,
+          'score_one_result': 1,
+          'method_switch_limit': 20,
+          'user_identifier': 'uid',
+          }
 
 
 def get_logger():
@@ -65,7 +67,8 @@ class Obelix(object):
         records_by_order = utils.rank_records_by_order(self.config, hitset)
 
         # Get Recommendations from storage
-        recommendations = self.storage.getFromTable('recommendations', userId)
+        recommendation = signal('obelix_get_recommendations').send(self, userId)
+        # recommendations = self.storage.getFromTable('recommendations', userId)
 
         # If the user does not have any recommendations, we can just return
         if len(recommendations) == 0 or self.config['recommendations_impact'] == 0:
@@ -112,7 +115,8 @@ class Obelix(object):
                 'rm': rm,
                 'rg': rg,
                 'cc': cc}
-        self.storage.setToTable("last-search-result", uid, data)
+        storage_key = "{0}::{1}".format("last-search-result", uid)
+        self.storage.set(storage_key, data)
 
         # Store search result for statistics
         data = {'obelix_redis': "CFG_WEBSEARCH_OBELIX_REDIS",
@@ -125,8 +129,8 @@ class Obelix(object):
                 'uri': user_info.get('uri'),
                 'timestamp': search_timestamp,
                 'settings': self.config,
-                'recommendations': self.storage.getFromTable('recommendations',
-                                                             uid),
+                'recommendations': signal('obelix_get_recommendations').
+                                          send(self, uid=uid),
                 'seconds_to_rank_and_print': seconds_to_rank_and_print,
                 'cols_in_result_ordered': cols_in_result_ordered,
                 'jrec': jrec,
@@ -189,7 +193,7 @@ class Obelix(object):
             "timestamp": time.time()
         }
         # self.queues.rpush("logentries", data)
-        signal('obelix_intern_save_to_neo_feeder').send(self, data)
+        signal('obelix_intern_save_to_neo_feeder').send(self, data=data)
 
     def log_page_view_for_analytics(self, uid, recid, ip, uri, type):
         """ Mainly used to store statistics, may be removed in the future
@@ -199,7 +203,8 @@ class Obelix(object):
         :param uri:
         :return:
         """
-        last_search_info = self.storage.getFromTable("last-search-result", uid)
+        storage_key = "{0}::{1}".format("last-search-result", uid)
+        last_search_info = self.storage.get(storage_key, uid)
 
         if not last_search_info:
             return
@@ -216,8 +221,9 @@ class Obelix(object):
                 rm = last_search_info['rm']
                 cc = last_search_info['cc']
 
-                recommendations = self.storage.getFromTable('recommendations',
-                                                            uid)
+                recommendations = signal('obelix_get_recommendations'). \
+                                        send(self, uid=uid)
+                # recommendations = self.storage.getFromTable('recommendations', uid)
                 data = {'search_timestamp': timestamp,
                         'recid': recid,
                         'timestamp': time.time(),
@@ -234,6 +240,6 @@ class Obelix(object):
                         'recid_in_recommendations': recid in recommendations,
                         'type': type}
                 # self.queues.lpush("statistics-page-view", data)
-                signal('obelix_intern_statistics_page_view').send(self, data)
+                signal('obelix_intern_statistics_page_view').send(self, data=data)
 
             hit_number_global += len(collection_result)

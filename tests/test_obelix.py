@@ -1,19 +1,20 @@
 
 from obelix_client.api import Obelix
-from obelix_client.storage import Storage
+from obelix_client.storage import DictStorage
 from obelix_client.queues import Queues
+from obelix_client.recivers import connect_redis_queue_signals
 
 class TestObelix:
 
     def setUp(self):
-        self.storage = Storage()
+        self.storage = DictStorage()
         self.queues = Queues()
 
 
     def test_obelix_settings_init(self):
-        storage = Storage()
+        storage = DictStorage()
         queues = Queues()
-        obelix = Obelix(storage, queues)
+        obelix = Obelix(storage)
         conf = obelix.conf
 
         assert conf['recommendations_impact'] == 0.5
@@ -25,7 +26,7 @@ class TestObelix:
         assert conf['method_switch_limit'] == 20
 
     def test_obelix_settings_saved(self):
-        storage = Storage()
+        storage = DictStorage()
         queues = Queues()
         # Set settings
         settings = {'recommendations_impact': 5.5,
@@ -37,7 +38,8 @@ class TestObelix:
                     'method_switch_limit': 13}
         storage.set('settings', settings)
 
-        obelix = Obelix(storage, queues)
+        obelix = Obelix(storage)
+        connect_redis_queue_signals(obelix, queues)
         conf = obelix.conf
 
         assert isinstance(conf['recommendations_impact'], float)
@@ -47,7 +49,7 @@ class TestObelix:
 
 
     def test_rank_records_no_recommendations(self):
-        storage = Storage()
+        storage = DictStorage()
         queues = Queues()
         uid = 1
         hitset = range(1, 30)
@@ -63,7 +65,8 @@ class TestObelix:
 
         # Set recommendations
         # None
-        obelix = Obelix(storage, queues)
+        obelix = Obelix(storage)
+        connect_redis_queue_signals(obelix, queues)
 
         # Page one
         result1 = obelix.rank_records(hitset, uid, 10, 0)
@@ -82,7 +85,7 @@ class TestObelix:
         assert pre3 == result3
 
     def test_rank_records_with_two_recommendations(self):
-        storage = Storage()
+        storage = DictStorage()
         queues = Queues()
         uid = 1
         hitset = range(1, 30)
@@ -100,7 +103,8 @@ class TestObelix:
         preReco = {5: 0.5, 20: 1.0}
         storage.setToTable('recommendations', uid, preReco)
 
-        obelix = Obelix(storage, queues)
+        obelix = Obelix(storage)
+        connect_redis_queue_signals(obelix, queues)
         # Page one
         result1 = obelix.rank_records(hitset, uid, 10, 0)
         # Page two
@@ -118,9 +122,10 @@ class TestObelix:
         assert pre3 == result3
 
     def test_log_search_result(self):
-        storage = Storage()
+        storage = DictStorage()
         queues = Queues()
-        obelix = Obelix(storage, queues)
+        obelix = Obelix(storage)
+        connect_redis_queue_signals(obelix, queues)
 
         # def test_log_search(self):
         user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
@@ -145,9 +150,10 @@ class TestObelix:
                                     logQueue['results_final_colls_scores']
 
     def test_log_search_analytics(self):
-        storage = Storage()
+        storage = DictStorage()
         queues = Queues()
-        obelix = Obelix(storage, queues, 'remote_ip')
+        obelix = Obelix(storage)
+        connect_redis_queue_signals(obelix, queues)
 
         user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
         record_ids = [[1, 88], [1, 2]]
@@ -169,9 +175,10 @@ class TestObelix:
         assert user_info['remote_ip'] == logQueue['remote_ip']
 
     def test_log_page_view(self):
-        storage = Storage()
+        storage = DictStorage()
         queues = Queues()
-        obelix = Obelix(storage, queues)
+        obelix = Obelix(storage)
+        connect_redis_queue_signals(obelix, queues)
 
         user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
         record_ids = [[1, 88], [1, 2]]
@@ -188,6 +195,7 @@ class TestObelix:
                                                            jrec, rg, rm, cc)
         obelix.log('page_view', user_info, 1)
 
+        import pdb; pdb.set_trace()
         logged = queues.lpop("statistics-page-view")
         assert str(logged['uid']) == '1'
 
