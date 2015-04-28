@@ -29,11 +29,11 @@ def rank_records_by_order(conf, hitset):
     scores = [1 - (lower + i * step) for i in range(0, size)]
     scores = scores[0:len(hitset)]
 
-    rankedHitset = {}
+    ranked_hitset = {}
     for idx, score in enumerate(scores):
-        rankedHitset[hitset[idx]] = score
+        ranked_hitset[hitset[idx]] = score
 
-    return rankedHitset
+    return ranked_hitset
 
 
 def sort_records_by_score(rec_scores):
@@ -52,17 +52,17 @@ def sort_records_by_score(rec_scores):
     return records, scores
 
 
-def calcScores(conf, records_by_order, recommendations):
+def calcScores(config, records_by_order, recommendations):
     final_scores = {}
 
-    for recid, recScore in records_by_order.items():
-        recommendationScore = recommendations.get(recid, None)
+    for recid, rec_score in records_by_order.items():
+        recommendation_score = recommendations.get(recid, None)
         # TODO: Check if this fits
-        finalScore = order_score = recScore * (1 - conf['recommendations_impact'])
-        if recommendationScore:
-            recommendedScore = recommendationScore * conf['recommendations_impact']
-            finalScore = order_score + recommendedScore
+        final_score = order_score = rec_score * (1 - config['recommendations_impact'])
+        if recommendation_score:
+            recommended_score = recommendation_score * config['recommendations_impact']
+            final_score = order_score + recommended_score
 
-        final_scores[recid] = finalScore
+        final_scores[recid] = final_score
 
     return final_scores

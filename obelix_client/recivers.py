@@ -1,39 +1,24 @@
 from blinker import signal
 
 
-class QueueSignals(object):
-    def __init__(self, queue):
-        self.queue = queue
-        self.signals = [('obelix_intern_statistics_search_result',
-                         self.obelix_intern_statistics_search_result),
-                        ('obelix_intern_statistics_page_view',
-                         self.obelix_intern_statistics_page_view),
-                        ('obelix_intern_save_to_neo_feeder',
-                         self.obelix_intern_save_to_neo_feeder),
-                        ]
+def connect_redis_queue_signals(api, queue):
+    statistics_search_result = signal('obelix_intern_statistics_search_result')
+    statistics_page_view = signal('obelix_intern_statistics_page_view')
+    save_to_neo_feeder = signal('obelix_intern_save_to_neo_feeder')
 
-    def connect(self):
-        for sig, sig_func in self.signals:
-            signal(sig).connect(sig_func)
-
-    def disconnect(self):
-        for sig, sig_func in self.signals:
-            signal(sig).disconnect(sig_func)
-
+    @statistics_search_result.connect
     def obelix_intern_statistics_search_result(sender, **kwargs):
-        print(kwargs)
-        #self.queue.lpush("statistics-search-result", data)
+        queue.lpush("statistics-search-result", data)
 
-    def obelix_intern_statistics_page_view(self, data):
-        self.queue.lpush("statistics-page-view", data)
+    @statistics_page_view.connect
+    def obelix_intern_statistics_page_view(sender, **kwargs):
+        queue.lpush("statistics-page-view", data)
 
-    def obelix_intern_save_to_neo_feeder(self, data):
-        self.queue.lpush("logentries", data)
+    @save_to_neo_feeder.connect
+    def obelix_intern_save_to_neo_feeder(sender, **kwargs):
+        queue.lpush("logentries", data)
 
 
-class RestApiSignals(object):
-    pass
-
-def obelix_intern_statistics_search_result(sender, **kwargs):
-    print(kwargs)
-    iself.queue.lpush("statistics-search-result", data)
+def connect_redis_storage_signals(api, storage):
+    get_recommendations = signal('obelix_get_recommendations')
+    

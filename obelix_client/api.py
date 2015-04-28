@@ -22,7 +22,16 @@ import time
 import logging
 import obelix_client.utils as utils
 from blinker import signal
-from obelix_client.recivers import QueueSignals
+
+CONFIG =  {'recommendations_impact': 0.5,
+           'score_lower_limit': 0.2,
+           'score_upper_limit': 10,
+           'score_min_limit': 10,
+           'score_min_multiply': 4,
+           'score_one_result': 1,
+           'method_switch_limit': 20,
+           'user_identifier': 'uid',
+           }
 
 
 def get_logger():
@@ -31,26 +40,14 @@ def get_logger():
 
 class Obelix(object):
 
-    def __init__(self, storage, queues, userIdentifer='uid', logger=None):
+    def __init__(self, storage, config={}, logger=None):
         self.logger = logger or get_logger()
         self.storage = storage
-        # self.storage_last_search_result =
-        self.queues = queues
-        self.signals = QueueSignals(queues)
-        self.signals.connect()
-        self.config = {'recommendations_impact': 0.5,
-                       'score_lower_limit': 0.2,
-                       'score_upper_limit': 10,
-                       'score_min_limit': 10,
-                       'score_min_multiply': 4,
-                       'score_one_result': 1,
-                       'method_switch_limit': 20}
-        self.config['userIdentifer'] = userIdentifer
+        self.config = CONFIG
+        self.config.update(config)
 
-        # Save config to DB if not exist
-        config_db = self.storage.get("settings", None)
-        if config_db is None:
-            self.storage.set("settings", self.config)
+        # TODO: REMOVE - Check if Obelix is using it
+        self.storage.set("settings", self.config)
 
     def rank_records(self, hitset, userId, rg=10, jrec=0):
         """
@@ -68,10 +65,7 @@ class Obelix(object):
         records_by_order = utils.rank_records_by_order(self.config, hitset)
 
         # Get Recommendations from storage
-        # TODO: How to name storage.get Function?
         recommendations = self.storage.getFromTable('recommendations', userId)
-        # FIXME: getIntDict enforce data types
-        recommendations = utils.getIntDict(recommendations)
 
         # If the user does not have any recommendations, we can just return
         if len(recommendations) == 0 or self.config['recommendations_impact'] == 0:
@@ -122,7 +116,7 @@ class Obelix(object):
 
         # Store search result for statistics
         data = {'obelix_redis': "CFG_WEBSEARCH_OBELIX_REDIS",
-                'obelix_uid': self.config['userIdentifer'],
+                'obelix_uid': self.config['user_identifier'],
                 'result': record_ids,
                 'original_result_ordered': original_result_ordered,
                 'results_final_colls_scores': results_final_colls_scores,
