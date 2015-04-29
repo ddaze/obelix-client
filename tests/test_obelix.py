@@ -1,46 +1,46 @@
 
 from obelix_client.api import Obelix
-from obelix_client.storage import DictStorage
+from obelix_client.storage import StorageProxy
 from obelix_client.queues import Queues
-from obelix_client.recivers import connect_redis_queue_signals
+from obelix_client.recivers import ConnectQueueSignals
 
-class TestObelix:
+class TestObelix(object):
 
-    def setUp(self):
-        self.storage = DictStorage()
+    def setup_method(self, method):
+        """ setup any state tied to the execution of the given method in a
+        class.  setup_method is invoked for every test method of a class.
+        """
+        self.storage = StorageProxy({})
+        self.recommendations = StorageProxy({},'recommendations::')
         self.queues = Queues()
-
+        self.obelix = Obelix(self.storage, self.recommendations)
+        self.que = ConnectQueueSignals(self.obelix, self.queues)
+        self.que.connect()
 
     def test_obelix_settings_init(self):
-        storage = DictStorage()
-        queues = Queues()
-        obelix = Obelix(storage)
-        conf = obelix.conf
-
+        obelix = Obelix(self.storage, self.recommendations)
+        conf = obelix.config
         assert conf['recommendations_impact'] == 0.5
         assert conf['score_lower_limit'] == 0.2
-        assert conf['score_upper_limit'] == 1
+        assert conf['score_upper_limit'] == 10
         assert conf['score_min_limit'] == 10
         assert conf['score_min_multiply'] == 4
         assert conf['score_one_result'] == 1
         assert conf['method_switch_limit'] == 20
 
-    def test_obelix_settings_saved(self):
-        storage = DictStorage()
-        queues = Queues()
+    def test_obelix_settings_parameter(self):
         # Set settings
         settings = {'recommendations_impact': 5.5,
                     'score_lower_limit': 2.2,
-                    'score_upper_limit': 9.5,
+                    'score_upper_limit': 1.5,
                     'score_min_limit': 9,
                     'score_min_multiply': 7,
                     'score_one_result': 3,
                     'method_switch_limit': 13}
-        storage.set('settings', settings)
-
-        obelix = Obelix(storage)
-        connect_redis_queue_signals(obelix, queues)
-        conf = obelix.conf
+        # storage.set('settings', settings)
+        obelix = Obelix(self.storage, self.recommendations, settings)
+        ConnectQueueSignals(obelix, self.queues)
+        conf = obelix.config
 
         assert isinstance(conf['recommendations_impact'], float)
 
@@ -49,25 +49,12 @@ class TestObelix:
 
 
     def test_rank_records_no_recommendations(self):
-        storage = DictStorage()
-        queues = Queues()
+        obelix = self.obelix
         uid = 1
         hitset = range(1, 30)
-        # Set settings
-        settings = {'recommendations_impact': 0.5,
-                    'score_lower_limit': 0.2,
-                    'score_upper_limit': 10,
-                    'score_min_limit': 10,
-                    'score_min_multiply': 4,
-                    'score_one_result': 1,
-                    'method_switch_limit': 20}
-        storage.set('settings', settings)
 
         # Set recommendations
         # None
-        obelix = Obelix(storage)
-        connect_redis_queue_signals(obelix, queues)
-
         # Page one
         result1 = obelix.rank_records(hitset, uid, 10, 0)
         # Page two
@@ -85,26 +72,14 @@ class TestObelix:
         assert pre3 == result3
 
     def test_rank_records_with_two_recommendations(self):
-        storage = DictStorage()
-        queues = Queues()
+        obelix = self.obelix
         uid = 1
         hitset = range(1, 30)
-        # Set settings
-        settings = {'recommendations_impact': 0.5,
-                    'score_lower_limit': 0.2,
-                    'score_upper_limit': 1,
-                    'score_min_limit': 10,
-                    'score_min_multiply': 4,
-                    'score_one_result': 1,
-                    'method_switch_limit': 20}
-        storage.set('settings', settings)
 
         # Set recommendations
         preReco = {5: 0.5, 20: 1.0}
-        storage.setToTable('recommendations', uid, preReco)
+        self.recommendations.set(uid, preReco)
 
-        obelix = Obelix(storage)
-        connect_redis_queue_signals(obelix, queues)
         # Page one
         result1 = obelix.rank_records(hitset, uid, 10, 0)
         # Page two
@@ -122,10 +97,7 @@ class TestObelix:
         assert pre3 == result3
 
     def test_log_search_result(self):
-        storage = DictStorage()
-        queues = Queues()
-        obelix = Obelix(storage)
-        connect_redis_queue_signals(obelix, queues)
+        obelix = self.obelix
 
         # def test_log_search(self):
         user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
@@ -142,18 +114,16 @@ class TestObelix:
                                                            seconds_to_rank_and_print,
                                                            jrec, rg, rm, cc)
 
-        logStorage = storage.getFromTable("last-search-result", 1)
-        logQueue = queues.rpop("statistics-search-result::1")
+        storage_key = "{0}::{1}".format("last-search-result", user_info['uid'])
+        logStorage = self.storage.get(storage_key)
+        logQueue = self.queues.rpop("statistics-search-result")
 
-        assert record_ids ==  logStorage['record_ids']
+        assert record_ids == logStorage['record_ids']
         assert results_final_colls_scores == \
                                     logQueue['results_final_colls_scores']
 
     def test_log_search_analytics(self):
-        storage = DictStorage()
-        queues = Queues()
-        obelix = Obelix(storage)
-        connect_redis_queue_signals(obelix, queues)
+        obelix = self.obelix
 
         user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
         record_ids = [[1, 88], [1, 2]]
@@ -169,16 +139,15 @@ class TestObelix:
                                                            seconds_to_rank_and_print,
                                                            jrec, rg, rm, cc)
 
-        logQueue = queues.lpop("statistics-search-result::1")
+        # TODO: Check if own queue are needed
+        # logQueue = queues.lpop("statistics-search-result::1")
+        logQueue = self.queues.lpop("statistics-search-result")
 
         assert str(user_info['uid']) == str(logQueue['uid'])
         assert user_info['remote_ip'] == logQueue['remote_ip']
 
     def test_log_page_view(self):
-        storage = DictStorage()
-        queues = Queues()
-        obelix = Obelix(storage)
-        connect_redis_queue_signals(obelix, queues)
+        obelix = self.obelix
 
         user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
         record_ids = [[1, 88], [1, 2]]
@@ -195,11 +164,10 @@ class TestObelix:
                                                            jrec, rg, rm, cc)
         obelix.log('page_view', user_info, 1)
 
-        import pdb; pdb.set_trace()
-        logged = queues.lpop("statistics-page-view")
+        logged = self.queues.lpop("statistics-page-view")
         assert str(logged['uid']) == '1'
-
-        logged = queues.lpop("logentries")
+# TODO: check cache "last-search-result"
+        logged = self.queues.lpop("logentries")
         assert logged['type'] ==  "events.pageviews"
         assert str(logged['user']) == '1'
 

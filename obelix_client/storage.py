@@ -2,7 +2,7 @@ import json
 import msgpack
 
 
-class Storage(object):
+class StorageProxy(object):
     """ Generic Storage:
         Your storage only has to support get, and set with default values
     """
@@ -16,7 +16,7 @@ class Storage(object):
 
     def get(self, key, default=None):
         if self.prefix:
-            key = "{0}::{1}".format(self.prefix, key)
+            key = "{0}{1}".format(self.prefix, key)
 
         data = self.storage.get(key, default)
         if self.encoder:
@@ -26,15 +26,18 @@ class Storage(object):
 
     def set(self, key, value):
         if self.prefix:
-            key = "{0}::{1}".format(self.prefix, key)
+            key = "{0}{1}".format(self.prefix, key)
 
         if self.encoder:
             value = self.encoder.dump(value)
 
-        self.storage.set(key, value)
+        if hasattr(self.storage, 'set'):
+            self.storage.set(key, value)
+        else:
+            self.storage[key] = value
 
 
-class RedisStorage(Storage):
+class RedisStorage(StorageProxy):
     """ Warapper for Redis:
         Takes care of the Timeout
     """
@@ -49,17 +52,13 @@ class RedisStorage(Storage):
         # TODO: Timeout stuff
         super(RedisStorage, self).set(key, value)
 
-class DictStorage(Storage):
-    """ Dict Storage is a Simpel Storage based on a local dict:
-    """
-    def __init__(self, storage={}, prefix=None, encoder=None):
-        super(DictStorage, self).__init__(storage, prefix, encoder)
 
-    def set(self, key, value):
-        if self.prefix:
-            key = "{0}::{1}".format(self.prefix, key)
+class RESTStorage(object):
 
-        if self.encoder:
-            value = self.encoder.dump(value)
+    def __init__(self, base_url=None, ):
+        pass
+        # set_url or get_ulr
+        # base is not None
 
-        self.storage[key] = value
+    def get(self, key):
+        return requests.get(self.url.format(key=key), ).json

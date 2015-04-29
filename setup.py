@@ -43,6 +43,7 @@ from setuptools.command.test import test as TestCommand
 
 requirements = [
     'msgpack-python',
+    'blinker',
 ]
 
 test_requirements = [

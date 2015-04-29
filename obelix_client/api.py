@@ -22,7 +22,6 @@ import time
 import logging
 import obelix_client.utils as utils
 from blinker import signal
-from obelix_client.recivers import connect_obelix_signals
 
 
 CONFIG = {'recommendations_impact': 0.5,
@@ -41,15 +40,21 @@ def get_logger():
 
 
 class Obelix(object):
+    signal_statistics_search_result = signal('obelix_intern_statistics_search_result')
+    signal_statistics_page_view = signal('obelix_intern_statistics_page_view')
+    signal_save_to_neo_feeder = signal('obelix_intern_save_to_neo_feeder')
 
-    def __init__(self, storage, config={}, logger=None):
+    def __init__(self, cache_storage, recommendation_storage, config=None, logger=None):
         self.logger = logger or get_logger()
-        self.storage = storage
-        self.config = CONFIG
-        self.config.update(config)
+        self.recommendations = recommendation_storage
+        self.cache = cache_storage
+        self.config = CONFIG.copy()
+        if config is not None:
+            self.config.update(config)
+        self.signals = []
 
         # TODO: REMOVE - Check if Obelix is using it
-        self.storage.set("settings", self.config)
+        self.cache.set("settings", self.config)
 
     def rank_records(self, hitset, userId, rg=10, jrec=0):
         """
@@ -62,20 +67,20 @@ class Obelix(object):
         hitset = list(hitset)
         hitset.reverse()
         jrec = max(jrec - 1, 0)
-
         # TODO: Maybe cache ranked result, if the next page is loaded
         records_by_order = utils.rank_records_by_order(self.config, hitset)
 
         # Get Recommendations from storage
-        recommendation = signal('obelix_get_recommendations').send(self, userId)
-        # recommendations = self.storage.getFromTable('recommendations', userId)
+        recommendations = self.recommendations.get(userId)
 
         # If the user does not have any recommendations, we can just return
-        if len(recommendations) == 0 or self.config['recommendations_impact'] == 0:
+        if recommendations is None or self.config['recommendations_impact'] == 0:
             finalScores = records_by_order
         else:
             # Calculate scores
-            finalScores = utils.calcScores(self.config, records_by_order, recommendations)
+            finalScores = utils.calcScores(self.config,
+                                           records_by_order,
+                                           recommendations)
 
         records, scores = utils.sort_records_by_score(finalScores)
 
@@ -116,7 +121,7 @@ class Obelix(object):
                 'rg': rg,
                 'cc': cc}
         storage_key = "{0}::{1}".format("last-search-result", uid)
-        self.storage.set(storage_key, data)
+        self.cache.set(storage_key, data)
 
         # Store search result for statistics
         data = {'obelix_redis': "CFG_WEBSEARCH_OBELIX_REDIS",
@@ -129,19 +134,19 @@ class Obelix(object):
                 'uri': user_info.get('uri'),
                 'timestamp': search_timestamp,
                 'settings': self.config,
-                'recommendations': signal('obelix_get_recommendations').
-                                          send(self, uid=uid),
+                'recommendations': self.recommendations.get(uid, None),
                 'seconds_to_rank_and_print': seconds_to_rank_and_print,
                 'cols_in_result_ordered': cols_in_result_ordered,
                 'jrec': jrec,
                 'rg': rg,
                 'rm': rm,
                 'cc': cc}
+        # TODO: Check if own queue are needed
         # queueName = "{0}::{1}".format("statistics-search-result", uid)
-        signal('obelix_intern_statistics_search_result').send(self, data=data)
+        Obelix.signal_statistics_search_result.send(self, data=data)
         # self.queues.lpush(queueName, data)
 
-    def log_page_view_after_search(user_info, recid):
+    def log_page_view_after_search(self, user_info, recid):
         """
         Log page views
         :param user_info:
@@ -153,7 +158,7 @@ class Obelix(object):
                            type="events.pageviews",
                            file_format="page_view")
 
-    def log_download_after_search(user_info, recid):
+    def log_download_after_search(self, user_info, recid):
         """
         We want to store downloads of PDFs as views
         (because users may click directly on download)
@@ -193,7 +198,7 @@ class Obelix(object):
             "timestamp": time.time()
         }
         # self.queues.rpush("logentries", data)
-        signal('obelix_intern_save_to_neo_feeder').send(self, data=data)
+        Obelix.signal_save_to_neo_feeder.send(self, data=data)
 
     def log_page_view_for_analytics(self, uid, recid, ip, uri, type):
         """ Mainly used to store statistics, may be removed in the future
@@ -204,7 +209,7 @@ class Obelix(object):
         :return:
         """
         storage_key = "{0}::{1}".format("last-search-result", uid)
-        last_search_info = self.storage.get(storage_key, uid)
+        last_search_info = self.cache.get(storage_key, uid)
 
         if not last_search_info:
             return
@@ -221,8 +226,7 @@ class Obelix(object):
                 rm = last_search_info['rm']
                 cc = last_search_info['cc']
 
-                recommendations = signal('obelix_get_recommendations'). \
-                                        send(self, uid=uid)
+                recommendations = self.recommendations.get(uid, {})
                 # recommendations = self.storage.getFromTable('recommendations', uid)
                 data = {'search_timestamp': timestamp,
                         'recid': recid,
@@ -240,6 +244,6 @@ class Obelix(object):
                         'recid_in_recommendations': recid in recommendations,
                         'type': type}
                 # self.queues.lpush("statistics-page-view", data)
-                signal('obelix_intern_statistics_page_view').send(self, data=data)
+                Obelix.signal_statistics_page_view.send(self, data=data)
 
             hit_number_global += len(collection_result)
