@@ -142,9 +142,7 @@ class Obelix(object):
                 'rm': rm,
                 'cc': cc}
         # TODO: Check if own queue are needed
-        # queueName = "{0}::{1}".format("statistics-search-result", uid)
         Obelix.signal_statistics_search_result.send(self, data=data)
-        # self.queues.lpush(queueName, data)
 
     def log_page_view_after_search(self, user_info, recid):
         """
@@ -152,6 +150,7 @@ class Obelix(object):
         :param user_info:
         :param recid:
         :return:
+        # TODO: Test if the page view happened from a search
         """
         # TODO: Check if needed
         self.log_page_view(user_info, recid,
@@ -165,6 +164,7 @@ class Obelix(object):
         :param user_info:
         :param recid:
         :return:
+        # TODO: Test if the download happened from a search
         """
         # TODO: Check if needed
         if 'uri' in user_info and '.pdf' in user_info['uri'].lower():
@@ -197,7 +197,7 @@ class Obelix(object):
             'file_format': file_format,
             "timestamp": time.time()
         }
-        # self.queues.rpush("logentries", data)
+        # goes to "logentries"
         Obelix.signal_save_to_neo_feeder.send(self, data=data)
 
     def log_page_view_for_analytics(self, uid, recid, ip, uri, type):
@@ -209,7 +209,7 @@ class Obelix(object):
         :return:
         """
         storage_key = "{0}::{1}".format("last-search-result", uid)
-        last_search_info = self.cache.get(storage_key, uid)
+        last_search_info = self.cache.get(storage_key)
 
         if not last_search_info:
             return
@@ -227,7 +227,6 @@ class Obelix(object):
                 cc = last_search_info['cc']
 
                 recommendations = self.recommendations.get(uid, {})
-                # recommendations = self.storage.getFromTable('recommendations', uid)
                 data = {'search_timestamp': timestamp,
                         'recid': recid,
                         'timestamp': time.time(),
@@ -243,7 +242,6 @@ class Obelix(object):
                         'recommendations': recommendations,
                         'recid_in_recommendations': recid in recommendations,
                         'type': type}
-                # self.queues.lpush("statistics-page-view", data)
                 Obelix.signal_statistics_page_view.send(self, data=data)
 
             hit_number_global += len(collection_result)

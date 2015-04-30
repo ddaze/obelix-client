@@ -30,7 +30,8 @@ class RedisQueue(object):
             queue = "{0}{1}".format(self.prefix, queue)
         data = self.redis.rpop(queue)
         if self.encoder:
-            data = self.encoder.loads(data)
+            if data is not None:
+                data = self.encoder.loads(data)
 
         return data
 
@@ -40,6 +41,7 @@ class RedisQueue(object):
             queue = "{0}{1}".format(self.prefix, queue)
         data = self.redis.lpop(queue)
         if self.encoder:
-            data = self.encoder.loads(data)
+            if data is not None:
+                data = self.encoder.loads(data)
 
         return data

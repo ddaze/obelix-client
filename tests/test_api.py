@@ -97,6 +97,20 @@ class TestObelix(object):
         assert pre2 == result2
         assert pre3 == result3
 
+
+class TestObelixLogging(object):
+
+    def setup_method(self, method):
+        """ setup any state tied to the execution of the given method in a
+        class.  setup_method is invoked for every test method of a class.
+        """
+        self.cache = RedisStorage(RedisMock(), prefix='pre::', encoder=json)
+        self.recommendations = RedisStorage(RedisMock(),'recommendations::')
+        self.queues = RedisQueue(RedisMock(), encoder=json)
+        self.obelix = Obelix(self.cache, self.recommendations)
+        self.que = ConnectQueueSignals(self.obelix, self.queues)
+        self.que.connect()
+
     def test_log_search_result(self):
         obelix = self.obelix
 
@@ -167,8 +181,55 @@ class TestObelix(object):
 
         logged = self.queues.lpop("statistics-page-view")
         assert str(logged['uid']) == '1'
-# TODO: check cache "last-search-result"
+        # TODO: check cache "last-search-result"
         logged = self.queues.lpop("logentries")
         assert logged['type'] ==  "events.pageviews"
         assert str(logged['user']) == '1'
+
+    def test_log_page_view_after_search_error(self):
+        """ There should be no statistics
+            because there was no search before
+        """
+        # TODO: Improve test
+        obelix = self.obelix
+
+        user_info = {'uid': 1, 'remote_ip': "127.0.0.1", "uri": "testuri"}
+        record_ids = [[1, 88], [1, 2]]
+
+        obelix.log('page_view_after_search', user_info, record_ids)
+
+        logged = self.queues.lpop("statistics-page-view")
+        assert logged == None
+        # TODO: check cache "last-search-result"
+        logged = self.queues.lpop("logentries")
+        assert logged['type'] ==  "events.pageviews"
+        assert str(logged['user']) == '1'
+
+
+    def test_log_download_after_search(self):
+        obelix = self.obelix
+
+        user_info = {'uid': 5, 'remote_ip': "127.0.0.1", "uri": "testuri.pdf"}
+        record_ids = [[1, 88], [1, 2]]
+        results_final_colls_scores = [[0.3, 0.5], [0.5, 0.2]]
+        cols_in_result_ordered = ["Thesis", "Another"]
+        seconds_to_rank_and_print = 2
+        downloaded_record = 88
+
+        jrec, rg, rm, cc = 0, 10, "recommendations", "obelix"
+
+        # log search
+        obelix.log('search_result', user_info, record_ids, record_ids,
+                                                           results_final_colls_scores,
+                                                           cols_in_result_ordered,
+                                                           seconds_to_rank_and_print,
+                                                           jrec, rg, rm, cc)
+        obelix.log('download_after_search', user_info, downloaded_record)
+        #'last-search-result::5'
+        logged = self.queues.lpop("statistics-search-result")
+        assert str(logged['uid']) == '5'
+        # TODO: check cache "last-search-result"
+        logged = self.queues.lpop("logentries")
+        assert logged['type'] ==  "events.downloads"
+        assert str(logged['user']) == '5'
 

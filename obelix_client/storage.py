@@ -1,5 +1,3 @@
-import json
-import msgpack
 
 
 class StorageProxy(object):
@@ -20,7 +18,8 @@ class StorageProxy(object):
 
         data = self.storage.get(key, default)
         if self.encoder:
-            if data is not None:
+            # encode only if default is not set
+            if data is not None and default is None:
                 data = self.encoder.loads(data)
 
         return data
@@ -78,12 +77,23 @@ class RedisMock(object):
         self.queues[queue].append(value)
 
     def rpop(self, queue):
-        # TODO: Exeception or None?
-        return self.queues[queue].pop()
+        # TODO: Exception or None?
+        try:
+            data = self.queues[queue].pop()
+        except KeyError:
+            data = None
+
+        return data
 
     def lpop(self, queue):
-        # TODO: Exeception or None?
-        return self.queues[queue].pop(0)
+        # TODO: Exception or None?
+        try:
+            data = self.queues[queue].pop(0)
+        except KeyError:
+            data = None
+
+        return data
+
 
 # class RESTStorage(object):
 #
