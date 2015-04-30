@@ -1,6 +1,6 @@
 
-from obelix_client.storage import StorageProxy
-from obelix_client.queues import Queues
+from obelix_client.storage import StorageProxy, RedisStorage, RedisMock
+import json
 
 class TestStorageDict:
     def setUp(self):
@@ -14,16 +14,19 @@ class TestStorageDict:
         assert storage.get("theKey") == "theValue"
         assert storage.get("noKey") == None
 
+    def test_set_and_get_with_prefix_encoder(self):
+        storage = StorageProxy({}, prefix='pre::', encoder=json)
+        storage.set("theKey", "theValue")
+        storage.set("theKey2", "theValue2")
+        assert storage.get("theKey2") == "theValue2"
+        assert storage.get("theKey") == "theValue"
+        assert storage.get("noKey") == None
 
-class TestQueueDict:
-    def test_lpush_and_rpop(self):
-        queues = Queues()
-        #  Fill queue One and Two
-        for i in range(0, 12):
-            queues.lpush("One", i)
-            queues.lpush("Two", i+30)
+    def test_Redis_set_and_get_with_prefix_encoder(self):
+        storage = RedisStorage(RedisMock(), prefix='pre::', encoder=json)
+        storage.set("theKey", "theValue")
+        storage.set("theKey2", "theValue2")
+        assert storage.get("theKey2") == "theValue2"
+        assert storage.get("theKey") == "theValue"
+        assert storage.get("noKey") == None
 
-        # Check
-        for i in range(0, 12):
-            assert queues.rpop("One") == i
-            assert queues.rpop("Two") == i+30

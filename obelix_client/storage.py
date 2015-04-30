@@ -20,7 +20,8 @@ class StorageProxy(object):
 
         data = self.storage.get(key, default)
         if self.encoder:
-            return self.encoder.load(data)
+            if data is not None:
+                data = self.encoder.loads(data)
 
         return data
 
@@ -29,7 +30,7 @@ class StorageProxy(object):
             key = "{0}{1}".format(self.prefix, key)
 
         if self.encoder:
-            value = self.encoder.dump(value)
+            value = self.encoder.dumps(value)
 
         if hasattr(self.storage, 'set'):
             self.storage.set(key, value)
@@ -46,19 +47,50 @@ class RedisStorage(StorageProxy):
 
     def get(self, key, default=None):
         # TODO: Timeout stuff
-        super(RedisStorage, self).get(key, default)
+        return super(RedisStorage, self).get(key, default)
 
     def set(self, key, value):
         # TODO: Timeout stuff
         super(RedisStorage, self).set(key, value)
 
 
-class RESTStorage(object):
+class RedisMock(object):
+    def __init__(self):
+        self.storage = {}
+        self.queues = {}
 
-    def __init__(self, base_url=None, ):
-        pass
-        # set_url or get_ulr
-        # base is not None
+    def get(self, key, default=None):
+        return self.storage.get(key, default)
 
-    def get(self, key):
-        return requests.get(self.url.format(key=key), ).json
+    def set(self, key, value):
+        self.storage[key] = value
+
+    def lpush(self, queue, value):
+        if not self.queues.get(queue, None):
+            # Create queue
+            self.queues[queue] = []
+        self.queues[queue].insert(0, value)
+
+    def rpush(self, queue, value):
+        if not self.queues.get(queue, None):
+            # Create queue
+            self.queues[queue] = []
+        self.queues[queue].append(value)
+
+    def rpop(self, queue):
+        # TODO: Exeception or None?
+        return self.queues[queue].pop()
+
+    def lpop(self, queue):
+        # TODO: Exeception or None?
+        return self.queues[queue].pop(0)
+
+# class RESTStorage(object):
+#
+#     def __init__(self, base_url=None, ):
+#         pass
+#         # set_url or get_ulr
+#         # base is not None
+#
+#     def get(self, key):
+#         return requests.get(self.url.format(key=key), ).json
